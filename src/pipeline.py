@@ -5,7 +5,6 @@ End-to-end detection + OCR pipeline.
 import os
 import csv
 import cv2
-import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Union
 from pathlib import Path
@@ -13,9 +12,6 @@ import numpy as np
 
 from src.detector import PlateDetector
 from src.ocr_reader import PlateOCR
-
-# Get logger for this module
-logger = logging.getLogger(__name__)
 
 
 class PlateRecognitionPipeline:
@@ -37,7 +33,6 @@ class PlateRecognitionPipeline:
             ocr_gpu: Whether to use GPU for OCR.
             output_dir: Directory for saving outputs.
         """
-        logger.info("Initializing PlateRecognitionPipeline...")
         self._detector = PlateDetector(model_path)
         self._ocr = PlateOCR(languages=ocr_languages, gpu=ocr_gpu)
         self._output_dir = Path(output_dir)
@@ -53,7 +48,6 @@ class PlateRecognitionPipeline:
     def _init_results_csv(self) -> None:
         """Initialize results CSV with headers if it doesn't exist."""
         if not self._results_csv.exists():
-            logger.info(f"Creating results CSV file at {self._results_csv}")
             with open(self._results_csv, "w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow([
@@ -63,7 +57,6 @@ class PlateRecognitionPipeline:
                     "bbox",
                     "detection_confidence",
                     "ocr_confidence",
-                    "low_confidence",
                 ])
 
     def process_image(
@@ -81,19 +74,14 @@ class PlateRecognitionPipeline:
             save_crops: Whether to save cropped plate images.
 
         Returns:
-            List of dicts with keys: bbox, plate_text, detection_confidence, ocr_confidence, low_confidence.
+            List of dicts with keys: bbox, plate_text, detection_confidence, ocr_confidence.
         """
-        logger.info(f"Processing image: {image_path}")
         image = cv2.imread(image_path)
         if image is None:
-            logger.error(f"Cannot read image: {image_path}")
             raise ValueError(f"Cannot read image: {image_path}")
 
         detections = self._detector.detect(image)
         results = []
-
-        if not detections:
-            logger.info(f"No license plates detected in image: {image_path}")
 
         crops_dir = self._output_dir / "crops" if save_crops else None
         if crops_dir:
@@ -102,30 +90,26 @@ class PlateRecognitionPipeline:
         for idx, (x1, y1, x2, y2, det_conf) in enumerate(detections):
             crop = image[y1:y2, x1:x2]
             if crop.size == 0:
-                logger.warning(f"Empty crop bounding box detected: {(x1, y1, x2, y2)}")
                 continue
 
-            plate_text, ocr_conf, is_low_conf = self._ocr.read_plate(crop)
+            plate_text, ocr_conf = self._ocr.read_plate(crop)
 
             result = {
                 "bbox": (x1, y1, x2, y2),
-                "plate_text": plate_text if plate_text else "[NO TEXT]",
+                "plate_text": plate_text,
                 "detection_confidence": det_conf,
                 "ocr_confidence": ocr_conf,
-                "low_confidence": is_low_conf,
             }
             results.append(result)
 
             if crops_dir:
                 crop_path = crops_dir / f"{Path(image_path).stem}_plate_{idx}.jpg"
                 cv2.imwrite(str(crop_path), crop)
-                logger.debug(f"Saved cropped plate to {crop_path}")
 
         if save_annotated and results:
             annotated = self._draw_annotations(image.copy(), results)
             output_path = self._output_dir / f"{Path(image_path).stem}_annotated.jpg"
             cv2.imwrite(str(output_path), annotated)
-            logger.info(f"Saved annotated image to {output_path}")
 
         self._log_results(image_path, results)
 
@@ -147,12 +131,10 @@ class PlateRecognitionPipeline:
             plate_text = r["plate_text"]
             det_conf = r["detection_confidence"]
             ocr_conf = r["ocr_confidence"]
-            is_low_conf = r["low_confidence"]
 
-            color = (0, 0, 255) if is_low_conf else (0, 255, 0)
-            cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-            label = f"{plate_text} {'[LOW_CONF]' if is_low_conf else ''} | D:{det_conf:.2f} O:{ocr_conf:.2f}"
+            label = f"{plate_text} | D:{det_conf:.2f} O:{ocr_conf:.2f}"
             label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
             label_y = max(y1 - 10, label_size[1])
 
@@ -160,7 +142,7 @@ class PlateRecognitionPipeline:
                 image,
                 (x1, label_y - label_size[1] - 4),
                 (x1 + label_size[0], label_y + 4),
-                color,
+                (0, 255, 0),
                 -1,
             )
             cv2.putText(
@@ -169,7 +151,7 @@ class PlateRecognitionPipeline:
                 (x1, label_y),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
-                (255, 255, 255) if is_low_conf else (0, 0, 0),
+                (0, 0, 0),
                 2,
             )
 
@@ -188,30 +170,15 @@ class PlateRecognitionPipeline:
 
         with open(self._results_csv, "a", newline="") as f:
             writer = csv.writer(f)
-            if not results:
-                # Log a case where no plates were detected
+            for r in results:
                 writer.writerow([
                     timestamp,
                     image_name,
-                    "[NO PLATES DETECTED]",
-                    "()",
-                    "0.0000",
-                    "0.0000",
-                    "True",
+                    r["plate_text"],
+                    r["bbox"],
+                    f"{r['detection_confidence']:.4f}",
+                    f"{r['ocr_confidence']:.4f}",
                 ])
-                logger.info(f"Logged empty detection event for {image_name} to CSV.")
-            else:
-                for r in results:
-                    writer.writerow([
-                        timestamp,
-                        image_name,
-                        r["plate_text"],
-                        r["bbox"],
-                        f"{r['detection_confidence']:.4f}",
-                        f"{r['ocr_confidence']:.4f}",
-                        str(r["low_confidence"]),
-                    ])
-                    logger.info(f"Logged plate detection '{r['plate_text']}' to CSV.")
 
     def process_frame(self, frame: np.ndarray) -> List[Dict]:
         """
@@ -231,14 +198,13 @@ class PlateRecognitionPipeline:
             if crop.size == 0:
                 continue
 
-            plate_text, ocr_conf, is_low_conf = self._ocr.read_plate(crop)
+            plate_text, ocr_conf = self._ocr.read_plate(crop)
 
             results.append({
                 "bbox": (x1, y1, x2, y2),
-                "plate_text": plate_text if plate_text else "[NO TEXT]",
+                "plate_text": plate_text,
                 "detection_confidence": det_conf,
                 "ocr_confidence": ocr_conf,
-                "low_confidence": is_low_conf,
             })
 
         return results
@@ -263,10 +229,8 @@ class PlateRecognitionPipeline:
             dedup_seconds: Ignore same plate if seen within this duration.
             window_name: Window title for display.
         """
-        logger.info(f"Opening video source: {video_source}")
         cap = cv2.VideoCapture(video_source)
         if not cap.isOpened():
-            logger.error(f"Cannot open video source: {video_source}")
             raise ValueError(f"Cannot open video source: {video_source}")
 
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -278,7 +242,6 @@ class PlateRecognitionPipeline:
         while True:
             ret, frame = cap.read()
             if not ret:
-                logger.info("End of video stream or cannot read frame.")
                 break
 
             if frame_idx % frame_interval == 0:
@@ -296,18 +259,15 @@ class PlateRecognitionPipeline:
             else:
                 display = frame
 
-            if window_name:
-                cv2.imshow(window_name, display)
+            cv2.imshow(window_name, display)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
-                logger.info("User interrupted live video stream by pressing 'q'.")
                 break
 
             frame_idx += 1
 
         cap.release()
         cv2.destroyAllWindows()
-        logger.info("Video stream closed and resources released.")
 
     def _compose_display_frame(
         self,
@@ -356,16 +316,13 @@ class PlateRecognitionPipeline:
         for i, r in enumerate(results):
             if y_offset > h - 30:
                 break
-            text = r['plate_text']
-            if r['low_confidence']:
-                text += " [LOW_CONF]"
             cv2.putText(
                 panel,
-                f"{i + 1}. {text}",
+                f"{i + 1}. {r['plate_text']}",
                 (10, y_offset),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                (0, 0, 255) if r['low_confidence'] else (0, 255, 0),
+                (0, 255, 0),
                 1,
             )
             y_offset += 25
@@ -383,16 +340,12 @@ class PlateRecognitionPipeline:
         now = datetime.now()
         dedup_window = timedelta(seconds=self._dedup_seconds)
 
-        if not results:
-            # Optionally log empty state to app log
-            logger.debug("No plates detected in current frame, skipping CSV logging.")
-            return
-
         for r in results:
             plate_text = r["plate_text"]
-            if not plate_text or plate_text == "[NO TEXT]":
+            if not plate_text:
                 continue
 
+            key = (plate_text,)
             logged_time = None
 
             for logged_plate, ts in self._logged_plates:
@@ -401,7 +354,6 @@ class PlateRecognitionPipeline:
                     break
 
             if logged_time and (now - logged_time) < dedup_window:
-                logger.debug(f"Skipping duplicate log for plate '{plate_text}' within dedup window.")
                 continue
 
             self._logged_plates = [
@@ -419,9 +371,7 @@ class PlateRecognitionPipeline:
                     r["bbox"],
                     f"{r['detection_confidence']:.4f}",
                     f"{r['ocr_confidence']:.4f}",
-                    str(r["low_confidence"]),
                 ])
-            logger.info(f"Logged unique plate detection '{plate_text}' from video stream.")
 
     def process_video(self, video_path: str, output_path: Optional[str] = None) -> None:
         """
@@ -431,21 +381,18 @@ class PlateRecognitionPipeline:
             video_path: Path to input video.
             output_path: Path for output video (optional).
         """
-        logger.info(f"Offline processing video: {video_path}")
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
-            logger.error(f"Cannot open video: {video_path}")
             raise ValueError(f"Cannot open video: {video_path}")
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         if output_path is None:
             output_path = str(self._output_dir / f"{Path(video_path).stem}_result.mp4")
 
-        logger.info(f"Saving processed video to: {output_path}")
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
         frame_idx = 0
@@ -462,7 +409,6 @@ class PlateRecognitionPipeline:
 
         cap.release()
         out.release()
-        logger.info("Video processing complete.")
 
     def get_pipeline_info(self) -> Dict:
         """
@@ -475,6 +421,70 @@ class PlateRecognitionPipeline:
             "detector": self._detector.get_model_info(),
             "ocr_languages": self._ocr._reader.langs if hasattr(self._ocr, "_reader") else [],
         }
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Vehicle Number Plate Detection and Recognition"
+    )
+    mode_group = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument("--image", type=str, help="Path to input image file")
+    mode_group.add_argument("--video", type=str, help="Path to input video file")
+    mode_group.add_argument("--webcam", action="store_true", help="Use webcam as video source")
+    parser.add_argument("--webcam-index", type=int, default=0, help="Webcam index (default: 0)")
+    parser.add_argument("--model", type=str, default=None, help="Path to YOLO model weights")
+    parser.add_argument("--ocr-gpu", action="store_true", help="Enable GPU for OCR")
+    parser.add_argument("--skip-frames", type=int, default=5, help="Process every N frames (default: 5)")
+    parser.add_argument("--dedup-seconds", type=float, default=3.0, help="Deduplication window in seconds")
+    parser.add_argument("--no-display", action="store_true", help="Disable live display")
+    parser.add_argument("--output-dir", type=str, default="outputs", help="Output directory")
+
+    args = parser.parse_args()
+
+    pipeline = PlateRecognitionPipeline(
+        model_path=args.model,
+        ocr_gpu=args.ocr_gpu,
+        output_dir=args.output_dir,
+    )
+
+    if args.image:
+        image_path = Path(args.image)
+        if not image_path.exists():
+            print(f"Error: Image not found: {args.image}")
+            return
+        results = pipeline.process_image(str(image_path))
+        print(f"\nResults for: {args.image}")
+        print("-" * 60)
+        if not results:
+            print("No plates detected.")
+        for i, r in enumerate(results, 1):
+            print(f"Plate {i}: {r['plate_text']} (D:{r['detection_confidence']:.2f} O:{r['ocr_confidence']:.2f})")
+
+    elif args.webcam:
+        pipeline.process_video_live(
+            video_source=args.webcam_index,
+            skip_frames=args.skip_frames,
+            dedup_seconds=args.dedup_seconds,
+            window_name="Webcam - Press Q to quit" if not args.no_display else "",
+        )
+
+    elif args.video:
+        video_path = Path(args.video)
+        if not video_path.exists():
+            print(f"Error: Video not found: {args.video}")
+            return
+        pipeline.process_video_live(
+            video_source=str(video_path),
+            skip_frames=args.skip_frames,
+            dedup_seconds=args.dedup_seconds,
+            window_name=f"Video: {video_path.name} - Press Q to quit" if not args.no_display else "",
+        )
+
+
+if __name__ == "__main__":
+    main()
 
 
 NumberPlatePipeline = PlateRecognitionPipeline

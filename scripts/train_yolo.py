@@ -15,6 +15,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ultralytics import YOLO
 
+def get_default_device():
+    import torch
+    if torch.backends.mps.is_available():
+        return "mps"
+    elif torch.cuda.is_available():
+        return "0"
+    return "cpu"
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -64,7 +71,7 @@ def parse_args():
     parser.add_argument(
         "--device",
         type=str,
-        default="",
+        default=get_default_device(),
         help="Device to use (default: auto-detect, or 'cpu', '0', '1', etc.)",
     )
     parser.add_argument(

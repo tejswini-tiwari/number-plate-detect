@@ -9,28 +9,7 @@ import streamlit as st
 import pandas as pd
 import cv2
 import tempfile
-import logging
-import sys
-import os
 from pathlib import Path
-
-# Setup logging system for Streamlit
-def setup_logging(output_dir: str = "outputs") -> None:
-    """Configures the logging system for Streamlit."""
-    os.makedirs(output_dir, exist_ok=True)
-    log_file = Path(output_dir) / "app.log"
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-
-setup_logging()
-logger = logging.getLogger("streamlit_app")
 
 from src.pipeline import PlateRecognitionPipeline
 
@@ -40,7 +19,6 @@ st.set_page_config(page_title="Plate Detector", layout="wide")
 
 def init_pipeline():
     if "pipeline" not in st.session_state:
-        logger.info("Initializing PlateRecognitionPipeline in Streamlit session.")
         st.session_state.pipeline = PlateRecognitionPipeline(
             model_path=None,
             ocr_gpu=False,
@@ -80,17 +58,11 @@ def render_image_mode(pipeline):
     )
 
     if uploaded_file is not None:
-        logger.info(f"Image uploaded: {uploaded_file.name}")
         tfile = tempfile.NamedTemporaryFile(delete=False, suffix=uploaded_file.name)
         tfile.write(uploaded_file.getvalue())
         tfile.close()
 
-        try:
-            results = pipeline.process_image(tfile.name)
-        except Exception as e:
-            logger.error(f"Error processing uploaded image: {e}", exc_info=True)
-            st.error("Failed to process the uploaded image. Check logs.")
-            return
+        results = pipeline.process_image(tfile.name)
 
         image = cv2.imread(tfile.name)
         annotated = pipeline._draw_annotations(image.copy(), results)
@@ -109,13 +81,7 @@ def render_image_mode(pipeline):
             st.subheader("Detected Plates")
             if results:
                 for i, r in enumerate(results, 1):
-                    plate_txt = r['plate_text']
-                    if r.get('low_confidence'):
-                        st.warning(f"Plate {i} [LOW OCR CONFIDENCE]: **{plate_txt}**")
-                        logger.warning(f"Streamlit displayed low-confidence plate {i}: {plate_txt}")
-                    else:
-                        st.success(f"Plate {i}: **{plate_txt}**")
-                        logger.info(f"Streamlit displayed plate {i}: {plate_txt}")
+                    st.success(f"Plate {i}: **{r['plate_text']}**")
                     st.caption(
                         f"Detection confidence: {r['detection_confidence']:.2%} | "
                         f"OCR confidence: {r['ocr_confidence']:.2%}"
@@ -123,7 +89,6 @@ def render_image_mode(pipeline):
                     st.caption(f"BBox: {r['bbox']}")
             else:
                 st.info("No plates detected in this image.")
-                logger.info("Streamlit processing complete. No plates detected.")
 
         Path(tfile.name).unlink()
 
@@ -137,7 +102,6 @@ def render_video_mode(pipeline):
     )
 
     if uploaded_file is not None:
-        logger.info(f"Video uploaded: {uploaded_file.name}")
         tfile = tempfile.NamedTemporaryFile(delete=False, suffix=uploaded_file.name)
         tfile.write(uploaded_file.getvalue())
         tfile.close()
@@ -146,11 +110,7 @@ def render_video_mode(pipeline):
 
         cap = cv2.VideoCapture(tfile.name)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        if total_frames <= 0:
-            st.error("Failed to parse video frames. Check video encoding.")
-            logger.error("Failed to parse video frames. total_frames is 0.")
-            return
+        fps = cap.get(cv2.CAP_PROP_FPS)
 
         frame_window = st.image([])
         progress_bar = st.progress(0)
@@ -173,7 +133,6 @@ def render_video_mode(pipeline):
                             "plate_text": r["plate_text"],
                             "detection_confidence": r["detection_confidence"],
                             "ocr_confidence": r["ocr_confidence"],
-                            "low_confidence": r.get("low_confidence", False),
                         })
 
                 annotated = pipeline._draw_annotations(frame.copy(), results)
@@ -189,7 +148,6 @@ def render_video_mode(pipeline):
         Path(tfile.name).unlink()
 
         st.success("Video processing complete!")
-        logger.info("Streamlit video processing complete.")
 
         if results_log:
             st.subheader("Detected Plates During Video")
@@ -197,27 +155,22 @@ def render_video_mode(pipeline):
             st.dataframe(df, use_container_width=True)
         else:
             st.info("No plates detected in this video.")
-            logger.info("No plates detected in the video stream.")
 
 
 def render_webcam_mode(pipeline):
     st.subheader("Live Webcam")
 
-    st.warning("Webcam mode requires an active camera on the host device. Make sure your camera is connected.")
+    st.warning("Webcam mode requires an active camera. Make sure your camera is connected.")
 
     if st.button("Start Webcam"):
         st.info("Starting webcam... Press 'q' in the display window to stop.")
-        logger.info("Webcam session started by user in Streamlit.")
-        try:
-            pipeline.process_video_live(
-                video_source=0,
-                skip_frames=5,
-                dedup_seconds=3.0,
-                window_name="Webcam - Press Q to quit",
-            )
-        except Exception as e:
-            st.error(f"Error initializing webcam: {e}")
-            logger.error(f"Error during Streamlit webcam stream: {e}", exc_info=True)
+
+        pipeline.process_video_live(
+            video_source=0,
+            skip_frames=5,
+            dedup_seconds=3.0,
+            window_name="Webcam - Press Q to quit",
+        )
 
 
 def render_results_table():
@@ -228,25 +181,14 @@ def render_results_table():
         try:
             df = pd.read_csv(csv_path)
             if not df.empty:
-                cols = ["timestamp", "plate_text", "detection_confidence", "ocr_confidence"]
-                # Include low_confidence column if it exists
-                if "low_confidence" in df.columns:
-                    cols.append("low_confidence")
-                
-                df_display = df[cols].copy()
-                
-                new_names = ["Timestamp", "Plate Text", "Detection Confidence", "OCR Confidence"]
-                if "low_confidence" in df.columns:
-                    new_names.append("Low OCR Conf?")
-                
-                df_display.columns = new_names
+                df_display = df[["timestamp", "plate_text", "detection_confidence", "ocr_confidence"]].copy()
+                df_display.columns = ["Timestamp", "Plate Text", "Detection Confidence", "OCR Confidence"]
                 df_display = df_display.sort_values("Timestamp", ascending=False).head(50)
                 st.dataframe(df_display, use_container_width=True)
             else:
                 st.info("No results yet. Process an image or video first.")
         except Exception as e:
             st.error(f"Error reading results: {e}")
-            logger.error(f"Error reading results from CSV in Streamlit: {e}")
     else:
         st.info("No results file found. Process an image or video first.")
 

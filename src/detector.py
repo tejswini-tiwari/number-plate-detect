@@ -2,15 +2,11 @@
 YOLO-based number plate detection.
 """
 
-import logging
 from typing import List, Tuple, Dict, Union, Optional
 import numpy as np
 import cv2
 
 from ultralytics import YOLO
-
-# Get logger for this module
-logger = logging.getLogger(__name__)
 
 
 class PlateDetector:
@@ -27,12 +23,9 @@ class PlateDetector:
         if model_path is None:
             model_path = "yolov8n.pt"
 
-        logger.info(f"Initializing YOLO model from path: {model_path}")
         try:
             self._model = YOLO(model_path)
-            logger.info("YOLO model loaded successfully.")
         except Exception as e:
-            logger.error(f"Failed to load YOLO model from {model_path}: {e}")
             raise RuntimeError(f"Failed to load YOLO model from {model_path}: {e}")
 
     def detect(self, image: Union[np.ndarray, str]) -> List[Tuple[int, int, int, int, float]]:
@@ -46,14 +39,10 @@ class PlateDetector:
             List of bounding boxes as (x1, y1, x2, y2, confidence) tuples.
         """
         if isinstance(image, str):
-            logger.debug(f"Reading image from path: {image}")
-            img_arr = cv2.imread(image)
-            if img_arr is None:
-                logger.error(f"Cannot read image file: {image}")
+            if not cv2.imread(image):
                 raise ValueError(f"Cannot read image file: {image}")
-            image = img_arr
+            image = cv2.imread(image)
         elif not isinstance(image, np.ndarray):
-            logger.error("Invalid image type provided. Must be numpy array or file path.")
             raise TypeError("image must be numpy array or file path")
 
         results = self._model(image)
@@ -66,11 +55,6 @@ class PlateDetector:
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf = float(box.conf[0])
                 boxes.append((x1, y1, x2, y2, conf))
-
-        if not boxes:
-            logger.info("No number plates detected in the image.")
-        else:
-            logger.info(f"Detected {len(boxes)} number plate(s).")
 
         return boxes
 
@@ -85,14 +69,10 @@ class PlateDetector:
             List of detection dictionaries with bbox, confidence, and class_id.
         """
         if isinstance(image, str):
-            logger.debug(f"Reading image from path: {image}")
-            img_arr = cv2.imread(image)
-            if img_arr is None:
-                logger.error(f"Cannot read image file: {image}")
+            if not cv2.imread(image):
                 raise ValueError(f"Cannot read image file: {image}")
-            image = img_arr
+            image = cv2.imread(image)
         elif not isinstance(image, np.ndarray):
-            logger.error("Invalid image type provided. Must be numpy array or file path.")
             raise TypeError("image must be numpy array or file path")
 
         results = self._model(image)
@@ -110,11 +90,6 @@ class PlateDetector:
                     "confidence": conf,
                     "class_id": cls_id,
                 })
-
-        if not detections:
-            logger.info("No number plates detected in the image.")
-        else:
-            logger.info(f"Detected {len(detections)} number plate(s) with classes.")
 
         return detections
 

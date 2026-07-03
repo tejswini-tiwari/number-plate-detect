@@ -2,32 +2,25 @@
 OCR-based plate number extraction.
 """
 
-import logging
 from typing import List, Tuple, Optional
 import numpy as np
 import cv2
 import re
 import easyocr
 
-# Get logger for this module
-logger = logging.getLogger(__name__)
-
 
 class PlateOCR:
     """Extracts text from detected number plates using EasyOCR."""
 
-    def __init__(self, languages: List[str] = ["en"], gpu: bool = False, conf_threshold: float = 0.5):
+    def __init__(self, languages: List[str] = ["en"], gpu: bool = False):
         """
         Initialize the OCR reader.
 
         Args:
             languages: List of language codes for OCR (e.g., ["en", "ar"]).
             gpu: Whether to use GPU acceleration for OCR.
-            conf_threshold: Threshold below which results are flagged as low confidence.
         """
-        logger.info(f"Initializing EasyOCR reader with languages {languages} (GPU={gpu})")
         self._reader = easyocr.Reader(languages, gpu=gpu, verbose=False)
-        self._conf_threshold = conf_threshold
 
     def preprocess(self, cropped_plate_image: np.ndarray) -> np.ndarray:
         """
@@ -42,7 +35,6 @@ class PlateOCR:
         Returns:
             Preprocessed image ready for OCR.
         """
-        logger.debug("Preprocessing cropped plate image for OCR.")
         if len(cropped_plate_image.shape) == 3:
             gray = cv2.cvtColor(cropped_plate_image, cv2.COLOR_BGR2GRAY)
         else:
@@ -67,28 +59,22 @@ class PlateOCR:
 
         return adaptive
 
-    def read_plate(self, cropped_plate_image: np.ndarray) -> Tuple[str, float, bool]:
+    def read_plate(self, cropped_plate_image: np.ndarray) -> Tuple[str, float]:
         """
-        Preprocess a cropped plate image, run OCR, and return text with confidence and low-confidence flag.
+        Preprocess a cropped plate image, run OCR, and return text with confidence.
 
         Args:
             cropped_plate_image: Raw cropped plate image.
 
         Returns:
-            Tuple of (extracted_text, average_confidence, is_low_confidence).
+            Tuple of (extracted_text, average_confidence).
         """
-        if cropped_plate_image is None or cropped_plate_image.size == 0:
-            logger.warning("Empty cropped plate image passed to read_plate.")
-            return "", 0.0, True
-
         preprocessed = self.preprocess(cropped_plate_image)
 
-        logger.debug("Running EasyOCR on preprocessed image.")
         results = self._reader.readtext(preprocessed)
 
         if not results:
-            logger.info("No text detected on the number plate.")
-            return "", 0.0, True
+            return "", 0.0
 
         full_text = ""
         total_conf = 0.0
@@ -101,14 +87,8 @@ class PlateOCR:
             count += 1
 
         avg_conf = total_conf / count if count > 0 else 0.0
-        is_low_confidence = avg_conf < self._conf_threshold
 
-        if is_low_confidence:
-            logger.warning(f"OCR result '{full_text}' flagged as low confidence ({avg_conf:.2f} < {self._conf_threshold}).")
-        else:
-            logger.info(f"Successfully recognized plate text: '{full_text}' with confidence: {avg_conf:.2f}")
-
-        return full_text, avg_conf, is_low_confidence
+        return full_text, avg_conf
 
     def clean_text(self, raw_text: str) -> str:
         """
@@ -137,7 +117,7 @@ class PlateOCR:
         Returns:
             Extracted text string.
         """
-        text, _, _ = self.read_plate(image)
+        text, _ = self.read_plate(image)
         return text
 
     def read_text_batch(self, images: List[np.ndarray]) -> List[str]:
