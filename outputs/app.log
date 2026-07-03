@@ -1,0 +1,13 @@
+2026-07-03 23:55:52,418 [INFO] streamlit_app: Initializing PlateRecognitionPipeline in Streamlit session.
+2026-07-03 23:55:52,420 [INFO] src.pipeline: Initializing PlateRecognitionPipeline...
+2026-07-03 23:55:52,420 [INFO] src.detector: Initializing YOLO model from path: yolov8n.pt
+2026-07-03 23:55:52,578 [INFO] src.detector: YOLO model loaded successfully.
+2026-07-03 23:55:52,579 [INFO] src.ocr_reader: Initializing EasyOCR reader with languages ['en'] (GPU=False)
+2026-07-03 23:55:52,585 [WARNING] easyocr.easyocr: Downloading detection model, please wait. This may take several minutes depending upon your network connection.
+2026-07-03 23:56:10,354 [INFO] easyocr.easyocr: Download complete
+2026-07-03 23:56:10,354 [WARNING] easyocr.easyocr: Downloading recognition model, please wait. This may take several minutes depending upon your network connection.
+2026-07-03 23:56:15,009 [INFO] easyocr.easyocr: Download complete.
+2026-07-03 23:56:17,729 [INFO] src.pipeline: Creating results CSV file at outputs\results.csv
+2026-07-03 23:58:35,123 [INFO] streamlit_app: Image uploaded: car1.jpg
+2026-07-03 23:58:35,130 [INFO] src.pipeline: Processing image: C:\Users\DELL\AppData\Local\Temp\tmp014l0p85car1.jpg
+2026-07-03 23:58:35,581 [INFO] src.detector: Detected 13 number plate(s).

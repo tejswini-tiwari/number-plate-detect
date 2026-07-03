@@ -1,0 +1,7 @@
+ultralytics
+opencv-python
+easyocr
+numpy
+regex
+python-dotenv
+streamlit

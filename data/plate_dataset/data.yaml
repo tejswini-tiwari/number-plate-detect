@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['Srilankan Number plates - v1 2023-11-26 10-59am']
+
+roboflow:
+  workspace: south-eastern-university-biosw
+  project: vehicle-number-plate-bani4
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/south-eastern-university-biosw/vehicle-number-plate-bani4/dataset/1
