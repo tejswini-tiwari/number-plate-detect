@@ -35,7 +35,7 @@ def main():
     mode_group.add_argument("--video", type=str, help="Path to input video file")
     mode_group.add_argument("--webcam", action="store_true", help="Use webcam as video source")
     parser.add_argument("--webcam-index", type=int, default=0, help="Webcam index (default: 0)")
-    parser.add_argument("--model", type=str, default=None, help="Path to YOLO model weights")
+    parser.add_argument("--model", type=str, default="models/plate_yolov8.pt", help="Path to YOLO model weights")
     parser.add_argument("--ocr-gpu", action="store_true", help="Enable GPU for OCR")
     parser.add_argument("--skip-frames", type=int, default=5, help="Process every N frames (default: 5)")
     parser.add_argument("--dedup-seconds", type=float, default=3.0, help="Deduplication window in seconds")

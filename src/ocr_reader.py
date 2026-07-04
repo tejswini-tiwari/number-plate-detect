@@ -9,6 +9,9 @@ import re
 import easyocr
 
 
+PLATE_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+
 class PlateOCR:
     """Extracts text from detected number plates using EasyOCR."""
 
@@ -26,14 +29,18 @@ class PlateOCR:
         """
         Preprocess a cropped plate image to improve OCR accuracy.
 
-        Converts to grayscale, applies adaptive thresholding, and resizes
-        the image to enhance text visibility.
+        Converts to grayscale, denoises, enhances contrast, and resizes.
+        Deliberately avoids hard binarization (adaptive/Otsu threshold),
+        since deep-learning OCR engines like EasyOCR generally perform
+        worse on binarized images than on clean grayscale ones -
+        binarization tends to fragment or merge character strokes,
+        especially on glossy/reflective plates.
 
         Args:
             cropped_plate_image: Raw cropped plate image (BGR or RGB).
 
         Returns:
-            Preprocessed image ready for OCR.
+            Preprocessed grayscale image ready for OCR.
         """
         if len(cropped_plate_image.shape) == 3:
             gray = cv2.cvtColor(cropped_plate_image, cv2.COLOR_BGR2GRAY)
@@ -41,37 +48,49 @@ class PlateOCR:
             gray = cropped_plate_image.copy()
 
         height, width = gray.shape
-        new_width = max(300, int(width * 2))
-        new_height = max(100, int(height * 2))
+
+        # Upscale moderately - large upscales (2x+) combined with small
+        # block-size operations amplify noise rather than helping.
+        scale = 2 if max(height, width) < 200 else 1.5
+        new_width = max(300, int(width * scale))
+        new_height = max(100, int(height * scale))
         resized = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
 
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        enhanced = clahe.apply(resized)
+        # Mild denoising before contrast enhancement to avoid amplifying
+        # sensor/compression noise along with the text.
+        denoised = cv2.fastNlMeansDenoising(resized, h=10)
 
-        adaptive = cv2.adaptiveThreshold(
-            enhanced,
-            255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            11,
-            2,
-        )
+        # CLAHE improves local contrast without collapsing the image to
+        # pure black/white, preserving stroke detail for OCR.
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        enhanced = clahe.apply(denoised)
 
-        return adaptive
+        return enhanced
 
-    def read_plate(self, cropped_plate_image: np.ndarray) -> Tuple[str, float]:
+    def read_plate(
+        self,
+        cropped_plate_image: np.ndarray,
+        allowlist: Optional[str] = PLATE_ALLOWLIST,
+    ) -> Tuple[str, float]:
         """
         Preprocess a cropped plate image, run OCR, and return text with confidence.
 
         Args:
             cropped_plate_image: Raw cropped plate image.
+            allowlist: Characters OCR is allowed to output. Restricting this
+                to plate-valid characters (A-Z, 0-9) reduces misreads caused
+                by visually similar symbols/punctuation. Pass None to disable.
 
         Returns:
             Tuple of (extracted_text, average_confidence).
         """
         preprocessed = self.preprocess(cropped_plate_image)
 
-        results = self._reader.readtext(preprocessed)
+        read_kwargs = {"detail": 1, "paragraph": False}
+        if allowlist:
+            read_kwargs["allowlist"] = allowlist
+
+        results = self._reader.readtext(preprocessed, **read_kwargs)
 
         if not results:
             return "", 0.0
@@ -82,6 +101,8 @@ class PlateOCR:
 
         for (bbox, text, conf) in results:
             cleaned = self.clean_text(text)
+            if not cleaned:
+                continue
             full_text += cleaned
             total_conf += conf
             count += 1

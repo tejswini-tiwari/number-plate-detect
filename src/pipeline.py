@@ -23,6 +23,7 @@ class PlateRecognitionPipeline:
         ocr_languages: List[str] = ["en"],
         ocr_gpu: bool = False,
         output_dir: str = "outputs",
+        conf_threshold: float = 0.5,   
     ):
         """
         Initialize the complete pipeline.
@@ -35,6 +36,7 @@ class PlateRecognitionPipeline:
         """
         self._detector = PlateDetector(model_path)
         self._ocr = PlateOCR(languages=ocr_languages, gpu=ocr_gpu)
+        self._conf_threshold = conf_threshold
         self._output_dir = Path(output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -80,7 +82,7 @@ class PlateRecognitionPipeline:
         if image is None:
             raise ValueError(f"Cannot read image: {image_path}")
 
-        detections = self._detector.detect(image)
+        detections = self._detector.detect(image, conf=self._conf_threshold)
         results = []
 
         crops_dir = self._output_dir / "crops" if save_crops else None
@@ -190,7 +192,7 @@ class PlateRecognitionPipeline:
         Returns:
             List of detected plate info for the frame.
         """
-        detections = self._detector.detect(frame)
+        detections = self._detector.detect(frame, conf=self._conf_threshold)
         results = []
 
         for x1, y1, x2, y2, det_conf in detections:
